@@ -1,0 +1,6 @@
+total games: 1000
+X wins 568 matches
+O wins 299 matches
+draws  133 matches
+
+playtime: 1.7119901180267334
