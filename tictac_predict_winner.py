@@ -21,7 +21,7 @@ def a_model_fn(features, labels, mode, params):
     train_op = optimizer.minimize(
         loss=loss, global_step=tf.train.get_global_step())
     eval_metric_ops = {
-        "accuracy": tf.metrics.accuracy(labels, predictions),
+        "accuracy": tf.metrics.accuracy(labels, tf.cast(predictions >= 0, tf.float32)),
     }
     return tf.estimator.EstimatorSpec(
         mode=mode,
@@ -61,18 +61,32 @@ def main():
         outcome = np.full((1000, 2), 0, dtype=np.float32)
         outcome[0] = [1, 0]
 
-    # tf estimator
+    split_at = int(array_player_1.shape[0] * 0.8)
+
+    # setup input functions
     train_input_fn = tf.estimator.inputs.numpy_input_fn(
-        x={"player1": array_player_1, "player2": array_player_2},
-        y=outcome,
+        x={"player1": array_player_1[:split_at], "player2": array_player_2[:split_at]},
+        y=outcome[:split_at],
         num_epochs=1,
         batch_size=128,
         shuffle=False)
 
+    dev_input_fn = tf.estimator.inputs.numpy_input_fn(
+        x={"player1": array_player_1[split_at:], "player2": array_player_2[split_at:]},
+        y=outcome[split_at:],
+        num_epochs=1,
+        batch_size=128,
+        shuffle=False
+    )
+
+    # setup estimator (control class)
     nn = tf.estimator.Estimator(model_fn=a_model_fn, params={}, model_dir="/tmp/tictacfow_practice")
 
-    for _ in range(20):
-        nn.train(input_fn=train_input_fn, steps=160)
+    # actually train (and evaluate)
+    for _ in range(5):
+        print('.')
+        nn.train(input_fn=train_input_fn, steps=1000)
+        nn.evaluate(input_fn=dev_input_fn, steps=50)
 
 
 if __name__ == "__main__":
