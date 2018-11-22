@@ -6,15 +6,20 @@
 import numpy as np
 import tensorflow as tf
 import _pickle as pickle
+import argparse
 
 
 def a_model_fn(features, labels, mode, params):
+    """very basic fully connected model"""
     p1 = tf.reshape(features['player1'], [-1, 9])
     p2 = tf.reshape(features['player2'], [-1, 9])
     players = tf.concat([p1, p2], axis=1)
     hidden = tf.layers.dense(players, 24)
     predictions = tf.layers.dense(hidden, 2)
+    return score_n_spec(predictions, labels, mode)
 
+def score_n_spec(predictions, labels, mode):
+    """evaluation of predictions, including loss and making estimator spec"""
     loss = tf.losses.sigmoid_cross_entropy(multi_class_labels=labels, logits=predictions)
     # actual optimization functions
     optimizer = tf.train.AdamOptimizer(1e-4, epsilon=1e-6)
@@ -30,18 +35,30 @@ def a_model_fn(features, labels, mode, params):
         eval_metric_ops=eval_metric_ops)
 
 
+def a_convolutional_model_fn(features, labels, mode, params):
+    """very basic convolutional model"""
+    p1 = tf.reshape(features['player1'], [-1, 3, 3, 1])
+    p2 = tf.reshape(features['player2'], [-1, 3, 3, 1])
+    players = tf.concat([p1, p2], axis=3)
+    hidden1 = tf.layers.conv2d(players, filters=12, kernel_size=2)
+    hidden2 = tf.layers.conv2d(hidden1, filters=16, kernel_size=2)
+    predictions = tf.layers.conv2d(hidden2, filters=2, kernel_size=1)
+    predictions = tf.reshape(predictions, [-1, 2])
+    return score_n_spec(predictions, labels, mode)
+
+
 def import_data(filename):
     with open(filename, 'rb') as f:
         out = pickle.load(f)
     return out
 
 
-def main():
-    # training data (future import once we have python3 numpy arrays)
+def main(conv, train_dir):
+    # training data
     try:
-        array_player_1 = import_data('tensorflow_generate_data/player1.pkl')
-        array_player_2 = import_data('tensorflow_generate_data/player2.pkl')
-        outcome = import_data('tensorflow_generate_data/winLose.pkl')
+        array_player_1 = import_data('tensorflow_generate_data/random2_1000_games/player1.pkl')
+        array_player_2 = import_data('tensorflow_generate_data/random2_1000_games/player2.pkl')
+        outcome = import_data('tensorflow_generate_data/random2_1000_games/winLose.pkl')
     except UnicodeDecodeError:
         # example data form / placeholder
         # player 1, player 2
@@ -79,15 +96,27 @@ def main():
         shuffle=False
     )
 
+    # choose model fn
+    if conv:
+        model_fn = a_convolutional_model_fn
+    else:
+        model_fn = a_model_fn
+
     # setup estimator (control class)
-    nn = tf.estimator.Estimator(model_fn=a_model_fn, params={}, model_dir="/tmp/tictacfow_practice")
+    nn = tf.estimator.Estimator(model_fn=model_fn, params={}, model_dir=train_dir)
 
     # actually train (and evaluate)
-    for _ in range(5):
+    for _ in range(500):
         print('.')
-        nn.train(input_fn=train_input_fn, steps=1000)
-        nn.evaluate(input_fn=dev_input_fn, steps=50)
+        nn.train(input_fn=train_input_fn, steps=10000)
+        nn.evaluate(input_fn=train_input_fn, steps=50, name='training')
+        nn.evaluate(input_fn=dev_input_fn, steps=50, name='dev')
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--conv', action="store_true", help="use Convolutional instead of fully connected model")
+    parser.add_argument('--train_dir', default='/tmp/tictacflow_practice',
+                        help='directory to save model and training data')
+    args = parser.parse_args()
+    main(args.conv, args.train_dir)
