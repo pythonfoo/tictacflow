@@ -9,6 +9,8 @@ import _pickle as pickle
 import argparse
 
 
+
+
 def a_model_fn(features, labels, mode, params):
     """very basic fully connected model"""
     p1 = tf.reshape(features['player1'], [-1, 9])
@@ -44,6 +46,28 @@ def a_convolutional_model_fn(features, labels, mode, params):
     hidden2 = tf.layers.conv2d(hidden1, filters=16, kernel_size=2)
     predictions = tf.layers.conv2d(hidden2, filters=2, kernel_size=1)
     predictions = tf.reshape(predictions, [-1, 2])
+    return score_n_spec(predictions, labels, mode)
+
+
+def shared_weight_cnn_model_fn(features, labels, mode, params):
+    p1 = tf.reshape(features['player1'], [-1, 3, 3, 1])
+    p2 = tf.reshape(features['player2'], [-1, 3, 3, 1])
+    with tf.variable_scope('player'):
+        p1_hidden1 = tf.layers.conv2d(p1, filters=12, kernel_size=2, name='conv_1')
+        p1_hidden2 = tf.layers.conv2d(p1_hidden1, filters=16, kernel_size=2, name='conv_2')
+        p1_prediction = tf.layers.conv2d(p1_hidden2, filters=1, kernel_size=1, name='conv_3')
+
+    with tf.variable_scope('player', reuse=True):
+        p2_hidden1 = tf.layers.conv2d(p2, filters=12, kernel_size=2, name='conv_1')
+        p2_hidden2 = tf.layers.conv2d(p2_hidden1, filters=16, kernel_size=2, name='conv_2')
+        p2_prediction = tf.layers.conv2d(p2_hidden2, filters=1, kernel_size=1, name='conv_3')
+
+    p1_prediction = tf.reshape(p1_prediction, [-1, 1])
+    p2_prediction = tf.reshape(p2_prediction, [-1, 1])
+    predictions = tf.concat([p1_prediction, p2_prediction], axis=1)
+    print(p1_prediction.get_shape(), 'p1 h2')
+    print(p2_prediction.get_shape(), 'p2 h2')
+    print(predictions.get_shape())
     return score_n_spec(predictions, labels, mode)
 
 
@@ -98,7 +122,7 @@ def main(conv, train_dir):
 
     # choose model fn
     if conv:
-        model_fn = a_convolutional_model_fn
+        model_fn = shared_weight_cnn_model_fn
     else:
         model_fn = a_model_fn
 
