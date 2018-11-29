@@ -16,7 +16,7 @@ def a_model_fn(features, labels, mode, params):
     p1 = tf.reshape(features['player1'], [-1, 9])
     p2 = tf.reshape(features['player2'], [-1, 9])
     players = tf.concat([p1, p2], axis=1)
-    hidden = tf.layers.dense(players, 24)
+    hidden = tf.layers.dense(players, 24, activation=tf.nn.relu)
     predictions = tf.layers.dense(hidden, 2)
     return score_n_spec(predictions, labels, mode)
 
@@ -24,7 +24,7 @@ def score_n_spec(predictions, labels, mode):
     """evaluation of predictions, including loss and making estimator spec"""
     loss = tf.losses.sigmoid_cross_entropy(multi_class_labels=labels, logits=predictions)
     # actual optimization functions
-    optimizer = tf.train.AdamOptimizer(1e-4, epsilon=1e-6)
+    optimizer = tf.train.AdamOptimizer(1e-5, epsilon=1e-6)
     train_op = optimizer.minimize(
         loss=loss, global_step=tf.train.get_global_step())
     eval_metric_ops = {
@@ -42,8 +42,8 @@ def a_convolutional_model_fn(features, labels, mode, params):
     p1 = tf.reshape(features['player1'], [-1, 3, 3, 1])
     p2 = tf.reshape(features['player2'], [-1, 3, 3, 1])
     players = tf.concat([p1, p2], axis=3)
-    hidden1 = tf.layers.conv2d(players, filters=12, kernel_size=2)
-    hidden2 = tf.layers.conv2d(hidden1, filters=16, kernel_size=2)
+    hidden1 = tf.layers.conv2d(players, filters=12, kernel_size=2, activation=tf.nn.relu)
+    hidden2 = tf.layers.conv2d(hidden1, filters=16, kernel_size=2, activation=tf.nn.relu)
     predictions = tf.layers.conv2d(hidden2, filters=2, kernel_size=1)
     predictions = tf.reshape(predictions, [-1, 2])
     return score_n_spec(predictions, labels, mode)
@@ -53,13 +53,17 @@ def shared_weight_cnn_model_fn(features, labels, mode, params):
     p1 = tf.reshape(features['player1'], [-1, 3, 3, 1])
     p2 = tf.reshape(features['player2'], [-1, 3, 3, 1])
     with tf.variable_scope('player'):
-        p1_hidden1 = tf.layers.conv2d(p1, filters=12, kernel_size=2, name='conv_1')
-        p1_hidden2 = tf.layers.conv2d(p1_hidden1, filters=16, kernel_size=2, name='conv_2')
+        p1_hidden1 = tf.layers.conv2d(p1, filters=64, kernel_size=2, name='conv_1', activation=tf.nn.relu)
+        p1_hidden1 = tf.layers.dropout(p1_hidden1, rate=0.9)
+        p1_hidden2 = tf.layers.conv2d(p1_hidden1, filters=512, kernel_size=2, name='conv_2', activation=tf.nn.relu)
+        p1_hidden2 = tf.layers.dropout(p1_hidden2, rate=0.9)
         p1_prediction = tf.layers.conv2d(p1_hidden2, filters=1, kernel_size=1, name='conv_3')
 
     with tf.variable_scope('player', reuse=True):
-        p2_hidden1 = tf.layers.conv2d(p2, filters=12, kernel_size=2, name='conv_1')
-        p2_hidden2 = tf.layers.conv2d(p2_hidden1, filters=16, kernel_size=2, name='conv_2')
+        p2_hidden1 = tf.layers.conv2d(p2, filters=64, kernel_size=2, name='conv_1', activation=tf.nn.relu)
+        p2_hidden1 = tf.layers.dropout(p2_hidden1, rate=0.9)
+        p2_hidden2 = tf.layers.conv2d(p2_hidden1, filters=512, kernel_size=2, name='conv_2', activation=tf.nn.relu)
+        p2_hidden2 = tf.layers.dropout(p2_hidden2, rate=0.9)
         p2_prediction = tf.layers.conv2d(p2_hidden2, filters=1, kernel_size=1, name='conv_3')
 
     p1_prediction = tf.reshape(p1_prediction, [-1, 1])
@@ -108,16 +112,16 @@ def main(conv, train_dir):
     train_input_fn = tf.estimator.inputs.numpy_input_fn(
         x={"player1": array_player_1[:split_at], "player2": array_player_2[:split_at]},
         y=outcome[:split_at],
-        num_epochs=1,
+        num_epochs=None,
         batch_size=128,
-        shuffle=False)
+        shuffle=True)
 
     dev_input_fn = tf.estimator.inputs.numpy_input_fn(
         x={"player1": array_player_1[split_at:], "player2": array_player_2[split_at:]},
         y=outcome[split_at:],
         num_epochs=1,
         batch_size=128,
-        shuffle=False
+        shuffle=True
     )
 
     # choose model fn
@@ -130,6 +134,11 @@ def main(conv, train_dir):
     nn = tf.estimator.Estimator(model_fn=model_fn, params={}, model_dir=train_dir)
 
     # actually train (and evaluate)
+    for _ in range(20):  # to see the early part of the learning curve
+        nn.train(input_fn=train_input_fn, steps=500)
+        nn.evaluate(input_fn=train_input_fn, steps=50, name='training')
+        nn.evaluate(input_fn=dev_input_fn, steps=50, name='dev')
+
     for _ in range(500):
         print('.')
         nn.train(input_fn=train_input_fn, steps=10000)
