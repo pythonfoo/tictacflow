@@ -18,10 +18,20 @@ def a_model_fn(features, labels, mode, params):
     players = tf.concat([p1, p2], axis=1)
     hidden = tf.layers.dense(players, 24, activation=tf.nn.relu)
     predictions = tf.layers.dense(hidden, 2)
-    return score_n_spec(predictions, labels, mode)
+    return score_n_spec(predictions, labels, mode, features)
 
-def score_n_spec(predictions, labels, mode):
+def score_n_spec(predictions, labels, mode, features):
     """evaluation of predictions, including loss and making estimator spec"""
+
+    if mode == tf.estimator.ModeKeys.PREDICT:
+        board1 = features['player1']
+        board2 = features['player2']
+        return tf.estimator.EstimatorSpec(
+            mode=mode,
+            predictions={"predictions": tf.cast(predictions >= 0, tf.int16),
+                         "board1": board1,
+                         "board2": board2})
+
     loss = tf.losses.sigmoid_cross_entropy(multi_class_labels=labels, logits=predictions)
     # actual optimization functions
     optimizer = tf.train.AdamOptimizer(1e-5, epsilon=1e-6)
@@ -46,7 +56,7 @@ def a_convolutional_model_fn(features, labels, mode, params):
     hidden2 = tf.layers.conv2d(hidden1, filters=16, kernel_size=2, activation=tf.nn.relu)
     predictions = tf.layers.conv2d(hidden2, filters=2, kernel_size=1)
     predictions = tf.reshape(predictions, [-1, 2])
-    return score_n_spec(predictions, labels, mode)
+    return score_n_spec(predictions, labels, mode, features)
 
 
 def shared_weight_cnn_model_fn(features, labels, mode, params):
@@ -72,7 +82,7 @@ def shared_weight_cnn_model_fn(features, labels, mode, params):
     print(p1_prediction.get_shape(), 'p1 h2')
     print(p2_prediction.get_shape(), 'p2 h2')
     print(predictions.get_shape())
-    return score_n_spec(predictions, labels, mode)
+    return score_n_spec(predictions, labels, mode, features)
 
 
 def import_data(filename):
@@ -134,22 +144,37 @@ def main(conv, train_dir):
     nn = tf.estimator.Estimator(model_fn=model_fn, params={}, model_dir=train_dir)
 
     # actually train (and evaluate)
-    for _ in range(20):  # to see the early part of the learning curve
-        nn.train(input_fn=train_input_fn, steps=500)
-        nn.evaluate(input_fn=train_input_fn, steps=50, name='training')
-        nn.evaluate(input_fn=dev_input_fn, steps=50, name='dev')
+    if mode == 'train':
+        for _ in range(20):  # to see the early part of the learning curve
+            nn.train(input_fn=train_input_fn, steps=500)
+            nn.evaluate(input_fn=train_input_fn, steps=50, name='training')
+            nn.evaluate(input_fn=dev_input_fn, steps=50, name='dev')
 
-    for _ in range(500):
-        print('.')
-        nn.train(input_fn=train_input_fn, steps=10000)
-        nn.evaluate(input_fn=train_input_fn, steps=50, name='training')
-        nn.evaluate(input_fn=dev_input_fn, steps=50, name='dev')
-
+        for _ in range(500):
+            print('.')
+            nn.train(input_fn=train_input_fn, steps=10000)
+            nn.evaluate(input_fn=train_input_fn, steps=50, name='training')
+            nn.evaluate(input_fn=dev_input_fn, steps=50, name='dev')
+    elif mode == 'predict':
+        preds = nn.predict(input_fn=dev_input_fn)
+        for p in preds:
+            print("X-s (player 1)")
+            print(p['board1'])
+            print("O-s (player 2)")
+            print(p['board2'])
+            print('who has a row of 3')
+            print(p['predictions'])
+            print('....')
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--conv', action="store_true", help="use Convolutional instead of fully connected model")
     parser.add_argument('--train_dir', default='/tmp/tictacflow_practice',
                         help='directory to save model and training data')
+    parser.add_argument('--predict', action='store_true', help='use this to predict instead of train')
     args = parser.parse_args()
+    if args.predict:
+        mode = 'predict'
+    else:
+        mode = 'train'
     main(args.conv, args.train_dir)
